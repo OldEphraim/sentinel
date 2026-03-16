@@ -1,0 +1,12 @@
+{
+  "name": "sentinel",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter @sentinel/web dev",
+    "build:web": "pnpm --filter @sentinel/web build",
+    "typecheck": "pnpm --filter @sentinel/web exec tsc --noEmit && pnpm --filter @sentinel/types exec tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

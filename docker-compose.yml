@@ -1,0 +1,3 @@
+# Full docker-compose.yml is implemented in Step 13.
+version: '3.9'
+services: {}
