@@ -38,3 +38,8 @@ Append an entry at the end of every step.
 **Reason:** Standard FastAPI practice separates Pydantic schemas from ORM models. The spec doesn't specify schema file contents but the directory existed.
 **Impact:** Step 7 defined `WatchCreateRequest` inline in `routers/watches.py`. Updated Step 7 in `STEPS.md` to import `WatchCreateSchema` from `schemas/watch.py` as `WatchCreateRequest` instead, keeping schema definitions in one place.
 ---
+
+## Step 4 — Mock SkyFi client and real SkyFi client
+**Decision:** No non-trivial decisions. Both `MockSkyFiClient` and `SkyFiClient` implemented exactly as specified.
+**Verification result:** `search_archive` returned 4 results (Sentinel-2B, SkySat-19, WorldView-3, ICEYE-X27); order placed and transitioned to `processing` within the 0.5s sleep (30s timer not yet elapsed, as expected); 6 analytics products returned. All assertions passed.
+---
