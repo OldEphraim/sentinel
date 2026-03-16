@@ -336,7 +336,7 @@ export interface AgentRun {
 }
 ```
 
-Note: `AgentThought` is referenced by `Order` in `order.ts`. Because `agent.ts` is exported from `index.ts` alongside `order.ts`, this import is resolved through the barrel export — do NOT add an explicit import inside `order.ts`. The consumer (the frontend) gets everything from `@sentinel/types` and TypeScript resolves it.
+Note: `AgentThought` is referenced by `Order` in `order.ts`. Add an explicit `import type { AgentThought } from './agent'` at the top of `order.ts` — TypeScript requires explicit imports between files in the same package regardless of barrel exports.
 
 ### Commands to run
 
@@ -2109,9 +2109,12 @@ import os
 import sys
 from datetime import datetime
 
-# Add the API src directory to path so we can reuse its models and services
-_api_src = os.path.join(os.path.dirname(__file__), "../../api/src")
-sys.path.insert(0, os.path.abspath(_api_src))
+# Add the API src directory to path for local development.
+# In Docker, all files are co-located in /app/src/ and python -m src.worker
+# handles the path correctly — the conditional prevents a bad path insert.
+_api_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../api/src")
+if os.path.isdir(_api_src):
+    sys.path.insert(0, _api_src)
 
 import aio_pika
 from sqlalchemy import update
@@ -2293,7 +2296,8 @@ cd apps/worker
 uv run python -c "
 import sys, os
 sys.path.insert(0, os.path.abspath('../../api/src'))
-from worker import main
+sys.path.insert(0, os.path.abspath('.'))
+from src.worker import main
 print('worker imports ok')
 " 2>&1 | head -20
 ```
@@ -2673,7 +2677,6 @@ This is the most complex component. Create it as a separate client component.
 'use client';
 import { useCallback, useRef, useState } from 'react';
 import Map, { type MapRef, Source, Layer } from 'react-map-gl/maplibre';
-import type { GeoJSONSourceRaw } from 'maplibre-gl';
 import type { GeoJsonPolygon } from '@sentinel/types';
 
 interface Props {
@@ -2720,7 +2723,7 @@ export default function AoiMap({ value, onChange, readOnly = false }: Props) {
   }, [onChange]);
 
   // Build preview GeoJSON while drawing
-  const previewGeoJson: GeoJSONSourceRaw = {
+  const previewGeoJson = {
     type: 'geojson',
     data: {
       type: 'FeatureCollection',
@@ -2740,7 +2743,7 @@ export default function AoiMap({ value, onChange, readOnly = false }: Props) {
     },
   };
 
-  const polygonGeoJson: GeoJSONSourceRaw = {
+  const polygonGeoJson = {
     type: 'geojson',
     data: value
       ? {
@@ -3378,10 +3381,10 @@ COPY apps/api/src/ ./src/
 COPY apps/worker/src/worker.py ./src/worker.py
 
 EXPOSE 8001
-CMD ["uv", "run", "python", "src/worker.py"]
+CMD ["uv", "run", "python", "-m", "src.worker"]
 ```
 
-Note: The worker Dockerfile copies both `apps/api/src/` and `apps/worker/src/worker.py` into the same `src/` directory. This is intentional — the worker does `import src.config`, `src.database`, etc. which are the API's modules. The build context must be the repo root (see docker-compose.yml in Step 13).
+Note: The worker Dockerfile copies both `apps/api/src/` and `apps/worker/src/worker.py` into the same `src/` directory. This is intentional — the worker does `import src.config`, `src.database`, etc. which are the API's modules. The CMD uses `python -m src.worker` (not `python src/worker.py`) so that Python adds `/app` to `sys.path`, making `from src.config import settings` resolve correctly to `/app/src/config.py`. Using `python src/worker.py` would add `/app/src` to `sys.path` instead, causing `from src.config` to look for `/app/src/src/config.py` which does not exist. The build context must be the repo root (see docker-compose.yml in Step 13).
 
 ### `apps/web/Dockerfile`
 
