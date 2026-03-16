@@ -43,3 +43,9 @@ Append an entry at the end of every step.
 **Decision:** No non-trivial decisions. Both `MockSkyFiClient` and `SkyFiClient` implemented exactly as specified.
 **Verification result:** `search_archive` returned 4 results (Sentinel-2B, SkySat-19, WorldView-3, ICEYE-X27); order placed and transitioned to `processing` within the 0.5s sleep (30s timer not yet elapsed, as expected); 6 analytics products returned. All assertions passed.
 ---
+
+## Step 5 — AI agent implementation
+**Decision:** No non-trivial decisions. `run_ordering_agent` and `interpret_result` implemented exactly as specified.
+**Verification result:** Agent completed in 4 tool-call steps, correctly selected SAR sensor and `vessel_detection` analytics for a harbor vessel-counting question (sensor_preference: 'sar'), placed order `skyfi_ord_d904971ea94b`. `skyfi_order_id` is non-null. Assertion passed.
+**Notable behavior:** The agent autonomously called `get_analytics_products` → `search_archive` (with `sensor_type='sar'`) → `estimate_cost` → `place_order` in the expected sequence, demonstrating correct tool-use reasoning.
+---
