@@ -1,0 +1,2 @@
+class SkyFiClient:
+    pass

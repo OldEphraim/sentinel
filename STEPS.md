@@ -1652,14 +1652,11 @@ This step replaces all four router stubs with complete implementations.
 ### `apps/api/src/routers/watches.py`
 
 ```python
-import json
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from geoalchemy2.shape import from_shape, to_shape
-from pydantic import BaseModel
 from shapely.geometry import shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1667,23 +1664,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import AsyncSessionLocal, get_db
 from src.models.order import Order
 from src.models.watch import Watch
+from src.schemas.watch import WatchCreateSchema as WatchCreateRequest
 from src.services.agent import run_ordering_agent
 from src.services.publisher import publish
 
 router = APIRouter()
-
-
-# --------------------------------------------------------------------------- #
-# Pydantic schemas
-# --------------------------------------------------------------------------- #
-
-class WatchCreateRequest(BaseModel):
-    name: str
-    question: str
-    aoi: dict  # GeoJSON Polygon
-    sensor_preference: str = "auto"
-    frequency: str = "once"
-    alert_threshold: Optional[str] = None
 
 
 # --------------------------------------------------------------------------- #
