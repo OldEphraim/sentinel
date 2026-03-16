@@ -75,3 +75,17 @@ Append an entry at the end of every step.
 **Reason:** The spec inserts `apps/api/src` onto `sys.path`, then does `from src.config import settings`. Python would look for `apps/api/src/src/config.py` — a double-nested `src/src/` path that doesn't exist. The correct insertion is `apps/api` (the directory *containing* the `src` package), so `from src.config` resolves to `apps/api/src/config.py`. Same root cause as the Step 2 barrel-export issue: the spec's path math was off by one level.
 **Impact:** `_api_root` (renamed from `_api_src` for clarity) inserts `apps/api`. The `os.path.isdir()` guard still works correctly — in Docker the co-located layout means this path won't exist and the insert is skipped. No downstream impact.
 ---
+
+## Step 9 — Next.js frontend setup
+**Decision:** `create-next-app` was invoked with `--no-turbo` as specified, but Next.js 16 uses Turbopack for `pnpm dev` regardless — the dev server starts with "(Turbopack)" in the banner. This is expected behaviour in Next.js 16+ where `--no-turbo` only affects the scaffold template, not the dev runtime. The server starts cleanly at http://localhost:3000 with 200 OK.
+**Alternatives considered:** Pinning to Next.js 14/15 to guarantee non-Turbopack dev; adding `next.config.ts` overrides.
+**Reason:** Turbopack is stable in Next.js 16 and produces no errors. Pinning to an older version would diverge from the current ecosystem.
+**Impact:** None for functionality. Build (`next build`) still uses webpack by default. If Turbopack-specific behaviour ever causes an issue it can be addressed by adding `experimental.turbo` config overrides.
+---
+
+## Step 9 — Next.js frontend setup (additional)
+**Decision:** Added `apps/web/pnpm-lock.yaml` to `.gitignore`. `create-next-app` generated a local lockfile inside `apps/web/`; the workspace root lockfile at `sentinel/pnpm-lock.yaml` is the authoritative one.
+**Alternatives considered:** Deleting the file; keeping it.
+**Reason:** Keeping both causes a "multiple lockfiles" warning from Next.js. Gitignoring it (rather than deleting) means `create-next-app` can regenerate it without affecting the workspace.
+**Impact:** None.
+---

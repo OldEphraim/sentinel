@@ -11,3 +11,4 @@ build/
 *.log
 .uv/
 uv.lock
+apps/web/pnpm-lock.yaml
