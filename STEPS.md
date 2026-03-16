@@ -2094,12 +2094,13 @@ import os
 import sys
 from datetime import datetime
 
-# Add the API src directory to path for local development.
+# Add the API root directory to path for local development so that
+# `from src.config import settings` resolves to apps/api/src/config.py.
 # In Docker, all files are co-located in /app/src/ and python -m src.worker
 # handles the path correctly — the conditional prevents a bad path insert.
-_api_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../api/src")
-if os.path.isdir(_api_src):
-    sys.path.insert(0, _api_src)
+_api_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../api")
+if os.path.isdir(_api_root):
+    sys.path.insert(0, _api_root)
 
 import aio_pika
 from sqlalchemy import update
@@ -2280,7 +2281,7 @@ Cannot fully test until Docker Compose is running (Step 13). Verify no syntax er
 cd apps/worker
 uv run python -c "
 import sys, os
-sys.path.insert(0, os.path.abspath('../../api/src'))
+sys.path.insert(0, os.path.abspath('../api'))
 sys.path.insert(0, os.path.abspath('.'))
 from src.worker import main
 print('worker imports ok')

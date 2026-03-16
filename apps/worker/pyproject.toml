@@ -1,0 +1,16 @@
+[project]
+name = "sentinel-worker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aio-pika>=9.6.1",
+    "anthropic>=0.85.0",
+    "asyncpg>=0.31.0",
+    "geoalchemy2>=0.18.4",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.13.1",
+    "shapely>=2.1.2",
+    "sqlalchemy[asyncio]>=2.0.48",
+]

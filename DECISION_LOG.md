@@ -68,3 +68,10 @@ Append an entry at the end of every step.
 - `GET /api/watches/{id}/orders` → returned order in `pending` status with full agent_thoughts (4 steps: get_analytics_products → search_archive(sar) → estimate_cost → place_order)
 - Publisher logged "ERROR publishing to order.placed" (expected — RabbitMQ not running yet), but order was still saved to DB and HTTP response succeeded, confirming the publisher's catch-and-log design works correctly.
 ---
+
+## Step 8 — Python worker service
+**Decision:** Changed `_api_src` path in `worker.py` from `"../../api/src"` to `"../../api"`, and corrected the verification command's `sys.path` insert from `../../api/src` to `../api`.
+**Alternatives considered:** Following the spec verbatim.
+**Reason:** The spec inserts `apps/api/src` onto `sys.path`, then does `from src.config import settings`. Python would look for `apps/api/src/src/config.py` — a double-nested `src/src/` path that doesn't exist. The correct insertion is `apps/api` (the directory *containing* the `src` package), so `from src.config` resolves to `apps/api/src/config.py`. Same root cause as the Step 2 barrel-export issue: the spec's path math was off by one level.
+**Impact:** `_api_root` (renamed from `_api_src` for clarity) inserts `apps/api`. The `os.path.isdir()` guard still works correctly — in Docker the co-located layout means this path won't exist and the insert is skipped. No downstream impact.
+---
