@@ -49,3 +49,6 @@ Append an entry at the end of every step.
 **Verification result:** Agent completed in 4 tool-call steps, correctly selected SAR sensor and `vessel_detection` analytics for a harbor vessel-counting question (sensor_preference: 'sar'), placed order `skyfi_ord_d904971ea94b`. `skyfi_order_id` is non-null. Assertion passed.
 **Notable behavior:** The agent autonomously called `get_analytics_products` → `search_archive` (with `sensor_type='sar'`) → `estimate_cost` → `place_order` in the expected sequence, demonstrating correct tool-use reasoning.
 ---
+
+## Step 6 — RabbitMQ publisher: no non-trivial decisions.
+---
