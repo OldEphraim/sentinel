@@ -52,3 +52,19 @@ Append an entry at the end of every step.
 
 ## Step 6 — RabbitMQ publisher: no non-trivial decisions.
 ---
+
+## Step 7 — Full FastAPI router implementations
+**Decision:** Stopped a pre-existing Homebrew PostgreSQL@16 service that was binding 127.0.0.1:5432 and intercepting connections ahead of the Docker PostGIS container.
+**Alternatives considered:** Running the Docker container on an alternate port (5433) and overriding DATABASE_URL; stopping the local service.
+**Reason:** User confirmed the local service should be stopped so Sentinel runs on the standard port. The existing service (gf-postgres-dev, postgres:15-alpine) was a separate project's container; stopping the Homebrew service rather than Docker was the correct approach since the Homebrew one blocked TCP connections from the host to Docker.
+**Impact:** Homebrew PostgreSQL@16 is stopped on this machine; it was not a Sentinel dependency. Docker sentinel-pg now owns port 5432.
+---
+
+## Step 7 — Full FastAPI router implementations (verification)
+**Verification result:** All four routers implemented and verified end-to-end:
+- `GET /health` → `{"status": "ok", "service": "sentinel-api"}`
+- `POST /api/watches/` → returned valid watch with UUID `6bef1d73-4b60-43b3-ba30-ced72fc062ae`
+- Background agent ran and placed order `skyfi_ord_1e0883733981` (ICEYE-X27 SAR + vessel_detection, $705)
+- `GET /api/watches/{id}/orders` → returned order in `pending` status with full agent_thoughts (4 steps: get_analytics_products → search_archive(sar) → estimate_cost → place_order)
+- Publisher logged "ERROR publishing to order.placed" (expected — RabbitMQ not running yet), but order was still saved to DB and HTTP response succeeded, confirming the publisher's catch-and-log design works correctly.
+---
