@@ -350,3 +350,8 @@ The worker received the correct `analyticsType` in the RabbitMQ message (e.g. `b
 
 **Verification:** TypeScript: 0 errors.
 ---
+
+## Post-Step-16 — README rewrite
+
+Rewrote `README.md` from scratch with accurate content reflecting all post-step-16 improvements: auth system, mock mode, demo key, per-user watches, agent reasoning UI, and correct clone URL (`OldEphraim/sentinel`). Retained the architecture diagram and tech stack table; replaced placeholder setup instructions with the actual signup flow.
+---

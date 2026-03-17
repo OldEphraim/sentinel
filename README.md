@@ -2,156 +2,137 @@
 
 > *Ask any question about any place on Earth. Get an answer, not an image.*
 
----
-
-## What is this?
-
-Sentinel is an autonomous Earth intelligence monitoring agent built on top of [SkyFi](https://skyfi.com)'s geospatial intelligence platform. Instead of requiring users to understand satellite sensors, image resolutions, delivery pipelines, or GIS toolchains, Sentinel lets anyone describe what they want to *know* about a location in plain English — and handles everything else automatically.
-
-You draw a polygon on a map. You type a question:
-
-- *"Is construction still ongoing at this industrial site?"*
-- *"How many vessels are anchored in this harbor right now?"*
-- *"Has the water level in this reservoir changed since last month?"*
-- *"Alert me when more than 100 cars appear in this parking lot."*
-
-Sentinel's AI agent interprets the question, determines the right satellite data product (optical vs. SAR, archive vs. new tasking, which analytics to run), places the order via the SkyFi API, waits for delivery asynchronously, interprets the results, and writes you a plain-English answer — with supporting evidence from the imagery.
-
-You can configure a watch to repeat on a schedule. You get alerts when thresholds are crossed. You get answers, not GeoTIFFs.
+Sentinel is an autonomous Earth intelligence agent that wraps SkyFi's geospatial platform API. Draw an area of interest, ask a natural-language question, and an AI agent autonomously selects satellite data products, places orders, and returns a plain-English answer.
 
 ---
 
-## Why I built this
+### Screenshots
 
-I built this as an independent project during [Gauntlet AI](https://gauntletai.com)'s Gold Hiring Partner Week to demonstrate familiarity with SkyFi's platform, business model, and technical architecture.
+![Dashboard](docs/screenshots/01-dashboard.png)
+*Dashboard*
 
-The insight behind Sentinel is the same insight behind SkyFi's own Series A thesis: **imagery is a commodity. Answers are the product.** SkyFi CEO Luke Fischer has stated explicitly that the company's direction is toward "speed of delivery of answers" — not just faster image delivery but automated interpretation of what those images mean. Sentinel is a working demonstration of that future state, built on SkyFi's existing API and analytics products.
+![Creating a watch with AOI polygon](docs/screenshots/02-new-watch.png)
+*Creating a watch with AOI polygon*
 
-SkyFi's actual value proposition is: *you shouldn't need a contract, a GIS analyst, or a PhD to use satellite data.* Sentinel extends that to its logical conclusion: *you shouldn't need to know what type of satellite to order, either.*
+![Watch detail with answered order](docs/screenshots/03-watch-detail.png)
+*Watch detail with answered order*
+
+![Agent reasoning steps](docs/screenshots/04-agent-reasoning.png)
+*Agent reasoning steps*
 
 ---
 
-## Architecture overview
+## How it works
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Browser                              │
-│  Next.js frontend: map, polygon draw, watch config, results │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ REST
-┌──────────────────────────▼──────────────────────────────────┐
-│                   FastAPI (Python)                           │
-│  - Watch CRUD                                               │
-│  - Agent orchestration (Claude tool-use loop)               │
-│  - SkyFi REST API client                                    │
-│  - Webhook receiver (SkyFi order callbacks)                 │
-│  - SSE endpoint (real-time status to frontend)              │
-└──────────┬──────────────────────────────────┬───────────────┘
-           │ publishes                         │ reads/writes
-┌──────────▼──────────┐           ┌───────────▼───────────────┐
-│  RabbitMQ           │           │  PostgreSQL + PostGIS       │
-│  order.placed       │           │  watches, orders, results  │
-│  order.ready        │           │  alert history             │
-└──────────┬──────────┘           └───────────────────────────┘
-           │ consumes
-┌──────────▼──────────────────────────────────────────────────┐
-│               Python Worker Service                          │
-│  - Polls SkyFi order status                                 │
-│  - Downloads completed imagery/analytics                    │
-│  - Runs agent interpretation step                           │
-│  - Writes results to Postgres                               │
-│  - Fires alert notifications                                │
-└─────────────────────────────────────────────────────────────┘
-```
+The user draws a polygon on an interactive map, names the watch, and types a natural-language question — for example, "How many cargo vessels are anchored in this harbor?" The AI agent first lists the available SkyFi analytics products, then searches the satellite archive for the most appropriate recent imagery over that area, selecting optical or SAR based on the question type and cloud cover conditions. After estimating cost and placing the order via the SkyFi REST API, a RabbitMQ worker polls for delivery and — once the order is complete — passes the raw analytics output to Claude, which interprets the numbers and writes a plain-English answer with supporting evidence. The answer appears in the browser in real-time via Server-Sent Events. The core insight: imagery is a commodity; answers are the product.
 
 ---
 
 ## Tech stack
 
-| Layer | Technology | Why |
+| Layer | Technology | Role |
 |---|---|---|
-| Frontend | **Next.js + React + TypeScript** | SSR dashboard, map UI, real-time status |
-| Backend | **FastAPI + Python** | Agent orchestration, SkyFi API client, webhooks |
-| Database | **PostgreSQL + PostGIS** | Geospatial watch areas, order history, results |
-| Messaging | **RabbitMQ** | Async order lifecycle events (satellite delivery is never instant) |
-| AI | **Claude API (tool-use)** | Agent loop: question → sensor selection → order → interpretation |
-| Infrastructure | **Docker + Kubernetes** | Local dev compose, production K8s manifests (GKE/EKS) |
-
-This is SkyFi's own technical stack: TypeScript/JavaScript, Python, Postgres, REST APIs, RabbitMQ/Kafka, Kubernetes, GCP/AWS, Docker, and Agents.
+| Frontend | Next.js 14 + React + TypeScript + Tailwind + MapLibre GL | Interactive map, polygon draw, watch management, real-time results |
+| Backend | FastAPI + Python 3.11 | Agent orchestration, SkyFi API client, SSE endpoint, webhook receiver |
+| AI Agent | Claude API (tool-use loop) | Question → sensor selection → order placement → analytics interpretation |
+| Database | PostgreSQL 15 + PostGIS | Watches, orders, geospatial AOIs, per-user data isolation |
+| Messaging | RabbitMQ | Async order lifecycle (satellite delivery is never instant) |
+| Infrastructure | Docker + Kubernetes + Helm | Local compose stack, production K8s manifests for GKE and EKS |
 
 ---
 
 ## SkyFi API integration
 
-Sentinel integrates with the following SkyFi platform capabilities:
+Sentinel uses the following SkyFi platform capabilities:
 
-- **Archive search** — search available imagery by AOI, date range, resolution, and sensor type
-- **Satellite tasking** — request new captures with configurable parameters
-- **Order placement** — transactional imagery purchasing
-- **Analytics** — object detection (vehicles, vessels, aircraft), change detection, material classification
-- **Satellite pass prediction** — estimate when the right asset will next overfly an AOI
-- **Open data** — free Sentinel-2 10m imagery for low-resolution monitoring watches
-- **Webhooks** — order completion callbacks driving the async worker pipeline
+- **Archive search** — query available imagery by AOI, date range, sensor type, and resolution
+- **Satellite tasking** — request new captures when archive imagery is insufficient
+- **Order placement** — transactional imagery purchasing via the platform REST API
+- **Analytics products** — vehicle detection, vessel detection, change detection, water surface extent, oil tank inventory, building footprint extraction
+- **Satellite pass prediction** — estimate when the next suitable asset will overfly an AOI
+- **Open data (Sentinel-2)** — free 10 m imagery for large-area or budget-constrained watches
+- **Webhooks** — order completion callbacks that drive the async worker pipeline
 
-> **Note on API access**: This project is built against SkyFi's documented REST API (`app.skyfi.com/platform-api/docs`). A mock server is included for local development. To run against the real SkyFi platform, set `SKYFI_API_KEY` in your environment variables. SkyFi Pro accounts can obtain an API key from their platform settings.
+By default, Sentinel runs in **mock mode**: all SkyFi API calls are handled by a local mock that simulates realistic delivery delays and returns plausible analytics data, so the full end-to-end flow works without a SkyFi account. To run against the real SkyFi platform, set `SKYFI_API_KEY` in your environment — no other changes are required.
 
 ---
 
 ## Local development
 
 ```bash
-# Prerequisites: Docker Desktop, Node.js 20+, Python 3.11+
-
-git clone https://github.com/<your-handle>/sentinel
+git clone https://github.com/OldEphraim/sentinel.git
 cd sentinel
-
 cp .env.example .env
-# Set SKYFI_API_KEY, ANTHROPIC_API_KEY, etc.
-
-docker compose up
+# Edit .env: set ANTHROPIC_API_KEY and SECRET_KEY (openssl rand -hex 32)
+# Leave SKYFI_API_KEY empty to use mock mode
+docker compose up --build
 ```
 
-Services will be available at:
-- Frontend: http://localhost:3000
-- API: http://localhost:8000 (docs at /docs)
+Visit **http://localhost:3000**, click **Create Account**, and enter the demo key **`SKYFI_DEMO`**. Three demo watches are automatically created for your account and the agent runs immediately.
+
+Other services:
+- API + docs: http://localhost:8000/docs
 - RabbitMQ management: http://localhost:15672
 - Postgres: localhost:5432
 
+To seed additional demo watches manually:
+
+```bash
+uv run --with httpx python scripts/seed.py
+```
+
 ---
 
-## Demo watches (seed data)
+## Demo key
 
-The seed script populates three demonstration watches:
+Creating an account requires a demo key to prevent unauthorized use of the Anthropic API. The default key is `SKYFI_DEMO`. To use a different key, set the `DEMO_KEY` environment variable before starting the API container. The key is checked at signup and at watch creation.
 
-**1. Port of Rotterdam — vessel count**
-> *"How many cargo vessels are currently anchored or docked in the Maasvlakte terminal?"*
-Uses ICEYE US SAR data (works through North Sea cloud cover), vessel detection analytics.
+---
 
-**2. Permian Basin drilling activity — energy commodity intelligence**
-> *"Are there active drilling rigs at this well pad? Has activity changed in the last 30 days?"*
-Uses Planet SkySat optical, change detection analytics. This is the use case SkyFi was originally built for — Bill Perkins counting rigs for his energy hedge fund.
+## Architecture
 
-**3. Hoover Dam reservoir — water level monitoring**
-> *"Has the water surface area of Lake Mead changed in the past 90 days?"*
-Uses free Sentinel-2 open data (10m resolution sufficient for reservoir extent measurement), NDWI water index.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                              │
+│  Next.js frontend: map, polygon draw, watch list, results   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ REST + SSE
+┌──────────────────────────▼──────────────────────────────────┐
+│                   FastAPI (Python 3.11)                     │
+│  - Auth (JWT) · Watch CRUD · Agent orchestration            │
+│  - SkyFi REST client · Webhook receiver · SSE stream        │
+└──────────┬──────────────────────────────────┬───────────────┘
+           │ publishes                         │ reads/writes
+┌──────────▼──────────┐           ┌───────────▼───────────────┐
+│     RabbitMQ        │           │   PostgreSQL + PostGIS     │
+│  order.placed       │           │   watches · orders · users │
+└──────────┬──────────┘           └───────────────────────────┘
+           │ consumes
+┌──────────▼──────────────────────────────────────────────────┐
+│                  Python Worker Service                       │
+│ - Polls SkyFi order status until complete                    │
+│ - Calls Claude to interpret analytics → plain-English answer │
+│ - Writes result to Postgres (frontend polling detects change)│
+└─────────────────────┬───────────────────────────────────────┘
+                      │ tool-use calls
+           ┌──────────▼──────────┐
+           │  Claude API         │  SkyFi Platform API
+           │  (Anthropic)        │  (app.skyfi.com)
+           └─────────────────────┘
+```
 
 ---
 
 ## Production deployment
 
-Kubernetes manifests are in `k8s/`. A Helm chart is in `helm/sentinel/`. Documented for deployment to:
-- **GKE** (Google Kubernetes Engine) with Cloud SQL Postgres and Cloud Pub/Sub
-- **EKS** (Amazon Elastic Kubernetes Service) with RDS and Amazon MQ
+Kubernetes manifests are in `k8s/`. A Helm chart is in `helm/sentinel/` with environment-specific values files for GKE (`values.gke.yaml`) and EKS (`values.eks.yaml`).
 
 ---
 
-## About the author
+## About
 
-Built by Alan (OldEphraim on GitHub) during Gauntlet AI's Week 5 Hiring Partner Week.
-Gauntlet AI is an elite AI engineering cohort run by Austen Allred in Austin, Texas.
+Built by Alan (OldEphraim) during Gauntlet AI Week 5 — an elite AI engineering cohort in Austin, Texas run by Austen Allred. Sentinel is not affiliated with or endorsed by SkyFi.
 
 ---
 
-*"There is no and will never be a 'contact sales' button on SkyFi." — Luke Fischer, CEO, SkyFi*
-
-*Sentinel is not affiliated with or endorsed by SkyFi.*
+*"There is no and will never be a 'contact sales' button on SkyFi." — Luke Fischer, CEO*
