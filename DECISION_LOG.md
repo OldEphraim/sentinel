@@ -143,3 +143,7 @@ Append an entry at the end of every step.
 **Reason:** Kubernetes StatefulSets are designed to be fronted by a headless service — it enables stable DNS names per pod (e.g., `postgres-0.postgres.sentinel.svc.cluster.local`) and is required for `serviceName` to work correctly in the StatefulSet spec. A standard ClusterIP service would work for read traffic but doesn't follow StatefulSet best practice.
 **Impact:** Other services connect to `postgres:5432` (the headless service DNS), which resolves directly to the pod IP — functionally identical to ClusterIP for a single-replica database.
 ---
+
+## Step 15 — Helm chart
+**Decision:** No non-trivial decisions. All six templates use `{{ .Values.* }}` for replica counts, image registry/tag/pullPolicy, resource requests/limits, storage class/size, and service type/port. `helm lint` passes with 0 errors (1 INFO note about missing `icon` in `Chart.yaml` — acceptable per spec).
+---

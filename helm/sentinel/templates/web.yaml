@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-web
+  namespace: {{ .Release.Namespace | default "sentinel" }}
+spec:
+  replicas: {{ .Values.replicaCount.web }}
+  selector:
+    matchLabels:
+      app: sentinel-web
+  template:
+    metadata:
+      labels:
+        app: sentinel-web
+    spec:
+      containers:
+        - name: web
+          image: {{ .Values.image.registry }}/sentinel-web:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://sentinel-api:8000"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: {{ .Values.resources.web.requests.cpu }}
+              memory: {{ .Values.resources.web.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.web.limits.cpu }}
+              memory: {{ .Values.resources.web.limits.memory }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-web
+  namespace: {{ .Release.Namespace | default "sentinel" }}
+spec:
+  type: {{ .Values.service.web.type }}
+  selector:
+    app: sentinel-web
+  ports:
+    - port: {{ .Values.service.web.port }}
+      targetPort: 3000

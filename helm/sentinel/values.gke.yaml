@@ -1,0 +1,7 @@
+service:
+  web:
+    type: LoadBalancer
+    annotations:
+      cloud.google.com/load-balancer-type: "External"
+postgresql:
+  storageClass: standard-rwo

@@ -1,0 +1,33 @@
+replicaCount:
+  api: 2
+  worker: 2
+  web: 2
+
+image:
+  registry: gcr.io/YOUR_PROJECT
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  api:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  worker:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  web:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+
+postgresql:
+  image: postgis/postgis:15-3.3
+  storageClass: standard
+  storageSize: 20Gi
+
+rabbitmq:
+  image: rabbitmq:3-management
+
+service:
+  web:
+    type: LoadBalancer
+    port: 80

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: sentinel
+description: Autonomous Earth intelligence monitoring agent powered by SkyFi
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - satellite
+  - geospatial
+  - skyfi
+  - earth-observation
