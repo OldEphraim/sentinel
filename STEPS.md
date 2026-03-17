@@ -2321,7 +2321,7 @@ pnpm add -D @types/maplibre-gl
 
 ### Link the shared types package
 
-In `apps/web/package.json`, add to `dependencies`:
+In `apps/web/package.json`, ensure the package `"name"` field is `"@sentinel/web"` (if `create-next-app` scaffolded it as `"web"`, rename it now — the root `package.json` scripts and the web Dockerfile both reference `@sentinel/web`). Then add to `dependencies`:
 ```json
 "@sentinel/types": "workspace:*"
 ```
@@ -3383,7 +3383,7 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 # Copy workspace config
-COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY pnpm-workspace.yaml package.json tsconfig.base.json pnpm-lock.yaml ./
 
 # Copy package.jsons for dependency installation
 COPY packages/types/package.json ./packages/types/

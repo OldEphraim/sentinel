@@ -103,3 +103,16 @@ Append an entry at the end of every step.
 **Reason:** `httpx` is not installed in the system Python environment. The repo root has no `pyproject.toml` with httpx as a dependency. `uv run --with httpx` installs it into a temporary environment for the invocation only — no permanent change to any project's dependencies.
 **Impact:** Users running `python scripts/seed.py` directly will hit `ModuleNotFoundError: No module named 'httpx'`. The README (Step 17) should document the correct invocation: `uv run --with httpx python scripts/seed.py`.
 ---
+
+## Step 12 — Dockerfiles
+**Decision 1:** Added `pnpm-lock.yaml` to the `COPY` line in `apps/web/Dockerfile` (spec omitted it).
+**Alternatives considered:** Using `--no-frozen-lockfile`; generating a lockfile inside the build.
+**Reason:** The spec's Dockerfile copies `pnpm-workspace.yaml package.json tsconfig.base.json` but omits the lockfile. `pnpm install --frozen-lockfile` requires it to be present in the working directory, so the build failed with `ERR_PNPM_NO_LOCKFILE`. Adding `pnpm-lock.yaml` to the same `COPY` line is the correct fix.
+**Impact:** The lockfile is now included in the build context, which is desirable for reproducible builds.
+---
+
+**Decision 2:** Renamed `apps/web/package.json` `"name"` from `"web"` to `"@sentinel/web"`.
+**Alternatives considered:** Changing the Dockerfile filter to `--filter web`; using `cd apps/web && pnpm build`.
+**Reason:** The spec's `apps/web/Dockerfile` runs `pnpm --filter @sentinel/web build`, which requires the package name to match. The root `package.json` scripts already reference `@sentinel/web` — so `create-next-app` had simply scaffolded the wrong name. The filter returned "No projects matched" and the build stage produced no output, causing the `COPY --from=builder` of `.next/standalone` to fail. Renaming the package to `@sentinel/web` fixes both the Dockerfile and aligns with the root scripts.
+**Impact:** `pnpm dev` from `apps/web/` is unaffected (the script name didn't change). The lockfile was regenerated with `pnpm install` at the repo root to update the package name reference.
+---
