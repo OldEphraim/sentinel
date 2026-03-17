@@ -89,3 +89,11 @@ Append an entry at the end of every step.
 **Reason:** Keeping both causes a "multiple lockfiles" warning from Next.js. Gitignoring it (rather than deleting) means `create-next-app` can regenerate it without affecting the workspace.
 **Impact:** None.
 ---
+
+## Step 10 — Frontend pages and components
+**Decision:** Added `as const` to all GeoJSON `type` fields in `AoiMap.tsx` (`'geojson'`, `'Feature'`, `'FeatureCollection'`, `'LineString'`), and cast JSX unknown-typed expressions with explicit `as string | undefined` before use in conditional renders.
+**Alternatives considered:** Following the spec verbatim (no casts).
+**Reason:** Two TypeScript strict-mode issues arose: (1) `react-map-gl`'s `Source` component requires `type: "geojson"` as a string literal, not `string` — spreading a plain object infers the wider type. Adding `as const` narrows it. (2) `Record<string, unknown>` access returns `unknown`; using `unknown` in JSX conditional expressions (`{x && ...}`) is rejected because `ReactNode` does not include `unknown`. Casting to `string | undefined` at the conditional boundary resolves this without losing type safety. (3) Template literal `${unknown}` in strict mode requires `String(x)` coercion.
+**Impact:** None functional — all casts are accurate at runtime. The `as const` assertions make the GeoJSON objects structurally compatible with the `@types/geojson` types that `react-map-gl` expects.
+---
+---

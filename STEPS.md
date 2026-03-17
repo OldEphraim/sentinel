@@ -2778,7 +2778,7 @@ export default function AoiMap({ value, onChange, readOnly = false }: Props) {
 
       {/* Overlay instructions */}
       {!readOnly && (
-        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+        <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
           <div className="bg-slate-900/90 text-slate-300 text-xs px-3 py-1.5 rounded-md">
             {value
               ? '✓ AOI selected'
