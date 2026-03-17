@@ -38,7 +38,7 @@ export function useOrderStream(watchId: string): OrderUpdate[] {
     };
 
     source.onerror = () => {
-      // SSE will auto-reconnect — no action needed
+      console.warn('[useOrderStream] SSE connection dropped, will auto-reconnect...');
     };
 
     return () => source.close();

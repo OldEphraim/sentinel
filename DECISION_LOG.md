@@ -147,3 +147,193 @@ Append an entry at the end of every step.
 ## Step 15 — Helm chart
 **Decision:** No non-trivial decisions. All six templates use `{{ .Values.* }}` for replica counts, image registry/tag/pullPolicy, resource requests/limits, storage class/size, and service type/port. `helm lint` passes with 0 errors (1 INFO note about missing `icon` in `Chart.yaml` — acceptable per spec).
 ---
+
+## Step 16 — Integration test and CI
+
+**Integration verification result:** All integration checklist items confirmed:
+- `GET /health` → `{"status": "ok", "service": "sentinel-api"}` ✓
+- Seed script created all 3 demo watches ✓
+- All 3 watches visible at http://localhost:3000 ✓
+- Watch detail pages load with orders in `answered` status ✓
+- Plain-English answers present (e.g. "22 vessels detected on Lake Mead") ✓
+- Agent thoughts expandable section shows 4–5 tool-call steps per order ✓
+- RabbitMQ management UI accessible at http://localhost:15672 ✓
+- New watch creation from UI works end-to-end ✓
+
+**Decision:** Used `[dependency-groups]` (uv's native dev-dependency mechanism) rather than `[project.optional-dependencies]` for pytest/pytest-asyncio.
+**Alternatives considered:** `[project.optional-dependencies]` with a `dev` extra; adding deps globally.
+**Reason:** `uv add --dev` naturally writes to `[dependency-groups]`, which is the PEP 735-compatible approach and the idiomatic uv way. `[project.optional-dependencies]` is for installable extras, not development tooling.
+**Impact:** `uv run pytest` and `uv sync --dev` both work correctly. CI uses `uv sync --dev` then `uv run pytest`.
+
+**Decision:** CI workflow uses `astral-sh/setup-uv@v4` GitHub Action to install uv rather than the curl-based install script.
+**Alternatives considered:** `curl -Ls https://astral.sh/uv/install.sh | sh` in a run step; pip-installing uv.
+**Reason:** The official `astral-sh/setup-uv` Action handles PATH setup, caching, and version pinning correctly for CI. The curl script requires extra PATH configuration and is less cache-friendly.
+**Impact:** CI api-test job installs uv cleanly and caches the tool between runs.
+
+**Final verification checklist:** All items passed:
+- `docker compose up --build` starts cleanly ✓
+- Seed creates all 3 demo watches ✓
+- All 3 watches appear at http://localhost:3000 ✓
+- Orders transition through full lifecycle to `answered` ✓
+- Plain-English answers visible on watch detail page ✓
+- Agent thoughts section expandable ✓
+- New watch creation works end-to-end ✓
+- `helm lint helm/sentinel/` passes with 0 errors ✓
+- `pnpm exec tsc --noEmit` produces no errors ✓
+- API and worker start cleanly ✓
+- `.env` in `.gitignore` ✓
+- `k8s/secrets.yaml.example` present with no real values; `k8s/secrets.yaml` not committed ✓
+---
+
+## Post-Step-16 — Timeout and UX fixes (three targeted fixes)
+
+**Fix 1 — Anthropic client timeout:**
+**Decision:** Added `timeout=60.0` to `AsyncAnthropic(...)` constructor in `apps/api/src/services/agent.py`.
+**Alternatives considered:** Per-call `timeout` parameter on each `messages.create` call.
+**Reason:** A constructor-level timeout applies uniformly to every API call made by that client instance, without touching the call sites. Individual per-call timeouts would require modifying two call sites (`run_ordering_agent` and `interpret_result`) and risk diverging in future.
+**Impact:** Each Claude API call will raise `anthropic.APITimeoutError` after 60 seconds. The existing `except Exception` handler in the agent loop already catches this, so the agent will fail gracefully and log the error.
+
+**Fix 2 — Agent run timeout:**
+**Decision:** Wrapped `run_ordering_agent(...)` in `asyncio.wait_for(..., timeout=120.0)` in `_trigger_watch_run`. Added `asyncio` import at the top of `watches.py`. Added `asyncio.TimeoutError` catch that logs `[watches] Agent timed out for watch {watch_id}` and produces a graceful `agent_result` with `error: "Agent timed out"`.
+**Alternatives considered:** Setting `max_iterations` lower; using `asyncio.shield` with a timeout task.
+**Reason:** `asyncio.wait_for` is the idiomatic Python way to cap an entire coroutine. The 120s cap is set higher than the 60s per-call timeout, so a single slow API call terminates via the Anthropic client timeout first; the agent-level timeout only fires if multiple calls collectively exceed 2 minutes.
+**Impact:** Background tasks can no longer hang indefinitely. Orders will be marked `failed` on timeout rather than leaving watches in a perpetual `pending` state.
+
+**Fix 3 — Elapsed time counter:**
+**Decision:** Added a `useEffect` with `setInterval(1s)` in the watch detail page that increments an `elapsed` state counter. The counter only runs when `orders.length === 0` (no orders yet). After 5s it shows `(Ns)` inline; after 30s adds a secondary line about satellite selection; after 60s replaces it with the 2-minute message. The interval is cleared when the component unmounts or when orders arrive (via the `orders.length` dependency).
+**Alternatives considered:** Using `Date.now()` delta instead of an incrementing counter; using a ref for the start time.
+**Reason:** A simple incrementing counter is the minimal implementation. The `orders.length` dependency on the useEffect means the interval is automatically cancelled when the first order arrives, avoiding a stale-closure update to `elapsed` after orders are present.
+**Impact:** Users creating a new watch now see live feedback during the ~30–90s agent run time, reducing perceived wait.
+---
+
+## Post-Step-16 — Watch detail page stale UI bug fix
+
+**Root cause:** The watch detail page relied on SSE (`useOrderStream`) as the sole mechanism for receiving order updates after the initial page load. The Docker networking layer drops idle TCP connections after ~60 seconds with no data. Because no SSE events are emitted until the agent completes (which takes 60–120s), the connection silently drops before any event arrives. `EventSource` auto-reconnects, but by then the update has already passed and no further events are sent. The result is a page stuck on "Running agent..." until a hard refresh.
+
+**Decision:** Added a 5-second polling interval in `apps/web/src/app/watches/[id]/page.tsx` that calls `fetchWatchOrders` and replaces the orders state with the latest DB snapshot. The polling runs alongside the existing SSE — SSE handles instant updates when healthy, polling guarantees convergence when SSE drops.
+**Alternatives considered:** Increasing the SSE keepalive interval on the server; removing SSE entirely and relying solely on polling; implementing exponential backoff reconnect logic in `useOrderStream`.
+**Reason:** Polling is the simplest fix with the smallest blast radius. Keepalive configuration would require changes to the FastAPI SSE router and nginx/Docker proxy settings. Removing SSE would degrade the happy-path experience. The polling interval (5s) is short enough that users see the update within a few seconds of the agent completing, and the network cost is negligible for a single-watch detail page.
+**Impact:** Orders appear within 5 seconds of being written to the database regardless of SSE health. The polling interval is cleared on component unmount so there are no dangling timers.
+
+**Also:** Improved `useOrderStream`'s `onerror` handler from a silent no-op to `console.warn('[useOrderStream] SSE connection dropped, will auto-reconnect...')`. This is diagnostic only — no behavioral change. It makes SSE drop/reconnect cycles visible in the browser DevTools console.
+---
+
+## Post-Step-16 — Mock pipeline analytics type bug fix (three bugs)
+
+**Root cause:** All demo watches returned vessel counts regardless of question. Three contributing issues:
+
+**Bug 1 — Worker ignored analytics_type from message payload.**
+The worker received the correct `analyticsType` in the RabbitMQ message (e.g. `building_extraction` for a construction question), but `MockSkyFiClient.get_order_status` auto-creates an order entry with `"analyticsType": "vessel_detection"` hardcoded (the cross-process Docker workaround from Step 13). The analytics result was therefore always generated as `vessel_detection` regardless of what the agent actually ordered.
+**Decision:** Added a standalone `generate_mock_analytics(analytics_type: str) -> dict` module-level function to `mock_skyfi.py`. In the worker, after `get_order_status` returns `"complete"`, if `analytics_result is None` or the mock's `analyticsType` doesn't match the payload's `analytics_type`, call `generate_mock_analytics(analytics_type)` directly using the correct type from the message. `MockSkyFiClient._generate_analytics` now delegates to this same function.
+**Alternatives considered:** Passing `analytics_type` into `get_order_status` so the mock auto-creates with the right type; storing analytics_type in Redis so mock state is shared across containers.
+**Reason:** The standalone function is the minimal fix — no changes to the `get_order_status` interface or the cross-process workaround logic. The worker already has the correct type in the message payload; it just wasn't using it.
+**Impact:** Worker now imports `generate_mock_analytics` from `src.services.mock_skyfi`. Analytics results will always match the type the agent actually chose.
+
+**Bug 2 — Analytics results improved for realism and variety.**
+**Decision:** Rewrote `generate_mock_analytics` with wider ranges and richer structure:
+- `vehicle_detection`: count 7–120 (was 12–85), confidence 0.87–0.96, breakdown unchanged
+- `vessel_detection`: count 2–40 (was 3–28), confidence 0.85–0.94
+- `change_detection`: percent 1.5–28% (was 2.5–22%), category list expanded to 6 options including `demolition`, `flood_inundation`, `infrastructure_expansion`
+- `water_extent`: area 2–25 sq km (was 4.2–18.5), change range -22 to +12% (was -18 to +3 — filling now possible), added `trend` field
+- `oil_tank_inventory`: count 4–60 (was 8–52), added `estimatedTotalVolumeBarrels`
+- `building_extraction`: added `underConstructionCount`
+- Unknown type: returns `analyticsType`, `detectionCount`, `confidence`, and a contextual `note` rather than bare `{"rawResult": "complete"}`
+
+**Bug 3 — Interpretation prompt improved for contextual grounding.**
+**Decision:** Added an explicit paragraph to `INTERPRETATION_SYSTEM` in `agent.py`: "The analytics result reflects real satellite data. Write your answer as if reporting on an actual location. Reference the specific numbers. If the analytics type seems mismatched with the question, acknowledge this honestly..."
+**Reason:** Without this instruction, Claude would sometimes produce generic answers that didn't reference the numeric evidence, or would silently produce vessel-count language even for a construction question.
+**Impact:** Answers now cite specific counts and construction/building language when appropriate.
+
+**Verification:** Created watch "London City Centre Construction" (optical, building question). Order answered with `analyticsType: building_extraction`, answer: "There are 4 active building sites visible in the city centre... 243 total buildings detected... 89% confidence." No vessel language.
+---
+
+## Post-Step-16 — interpret_result refactored to use tool-use structured output
+
+**Root cause:** `interpret_result` used an instruction-following approach ("respond ONLY with valid JSON") which is fragile: Claude sometimes wraps the response in markdown fences, adds prose before the JSON, or produces subtly malformed JSON. The existing code stripped fences and called `json.loads`, but any deviation caused an exception and fell back to the raw-dump answer.
+
+**Decision:** Replaced the text-parsing approach with a `submit_interpretation` tool and `tool_choice={"type": "any"}`. Claude is forced to call the tool, so `block.input` is already a validated Python dict — no JSON parsing, no fence-stripping, no fragility.
+**Alternatives considered:** `tool_choice={"type": "tool", "name": "submit_interpretation"}` (more explicit but equivalent for a single-tool call); using Anthropic's structured-output beta; keeping the JSON approach with a stricter regex.
+**Reason:** `tool_choice="any"` with a single tool is the idiomatic Anthropic pattern for structured output. `block.input` is guaranteed to match the schema; Claude will never produce a raw text response when `tool_choice` is set. This eliminates the entire class of JSON-parsing failures with no increase in complexity.
+**Impact:** `interpret_result` no longer imports or uses `json.loads` for the response (still uses `json.dumps` for the prompt). The fallback `except` block is retained for unexpected API errors. The `_SUBMIT_INTERPRETATION_TOOL` dict is defined as a module-level constant alongside `TOOLS`.
+
+**INTERPRETATION_SYSTEM updated:** Removed all JSON formatting instructions. New prompt focuses purely on reasoning quality: cite exact numbers, set confidence genuinely based on analytics-question alignment (not always "medium"), acknowledge analytics/geography mismatches honestly, be direct.
+
+**Verification:** Created watch "Permian Basin Oil Storage" (optical, `oil_tank_inventory`). Answer: "approximately 52% full on average, 15 tanks, estimated 1,140,360 barrels total." Confidence: `medium` (correctly reflects that historical comparison wasn't possible). Structured output arrived via `tool_use` block with no parsing errors.
+---
+
+## Post-Step-16 — Per-user authentication system
+
+**Scope:** Full auth system across backend and frontend — users table, JWT auth, per-user watch filtering, DEMO_KEY gate, login/signup UI, AuthGuard, auth-aware nav.
+
+### Backend
+
+**Decision:** Used `bcrypt` directly instead of `passlib[bcrypt]`.
+**Alternatives considered:** Pinning `bcrypt<4.0.0`; using `argon2-cffi`.
+**Reason:** `passlib 1.7.4` calls `detect_wrap_bug` internally on first use, which passes a 73-byte secret to bcrypt. `bcrypt 4.x+` added strict enforcement of the 72-byte limit and raises `ValueError` at this step. The passlib project hasn't cut a release fixing this. Switching to `bcrypt` directly is one line of code and has no downside — the API (`bcrypt.hashpw`/`bcrypt.checkpw`) is straightforward.
+**Impact:** `passlib` removed from dependencies; `bcrypt` added. `hash_password` and `verify_password` in `services/auth.py` call `bcrypt.hashpw`/`bcrypt.checkpw` directly.
+
+**`services/auth.py`:** JWT via `python-jose`, `OAuth2PasswordBearer(tokenUrl="/api/auth/login")` for Bearer token extraction, `get_current_user` dependency returns `user_id: str`.
+
+**`routers/auth.py`:** POST `/signup` (validates demo_key → 403, email uniqueness → 409, creates user, creates 3 demo watches with `user_id` set, schedules agent runs via `BackgroundTasks`); POST `/login` (returns 401 on bad credentials); GET `/me`.
+
+**`routers/watches.py`:** All 5 routes require `user_id = Depends(get_current_user)`. `list_watches` filters `Watch.user_id == user_id`. `create_watch` checks `X-Demo-Key` header via FastAPI `Header` dependency (→ 403 if wrong), sets `watch.user_id = user_id`. `get_watch`, `delete_watch`, `get_watch_orders` return 404 (not 403) if watch not found or belongs to a different user — no existence leakage.
+
+**`models/watch.py`:** Added `user_id: Mapped[str | None]` (nullable so existing data is unaffected on ALTERs).
+
+**`migrations/001_initial.sql`:** Added `users` table after `orders` table; `ALTER TABLE watches ADD COLUMN IF NOT EXISTS user_id` with FK to `users(id) ON DELETE CASCADE`.
+
+**`main.py`:** Registered `/api/auth` router. Added `import src.models.user` to register `User` with `Base.metadata` so `create_all` creates it in non-Docker development.
+
+### Frontend
+
+**`contexts/AuthContext.tsx`:** Stores `{ token, user }` in React state and `localStorage` under key `sentinel_auth`. Initialized from localStorage via lazy `useState` initializer (synchronous, no hydration flash). Exposes `login`, `signup`, `logout`. `signup` accepts `demoKey` and passes `demo_key` in the JSON body to `/api/auth/signup`.
+
+**`lib/api.ts`:** `apiFetch` reads `sentinel_auth` from localStorage and adds `Authorization: Bearer {token}` to every request. `setDemoKeyHeader(key)` sets a module-level variable consumed by the next `apiFetch` call (clears after use). Added `ApiError` class (exported) with `.status` for typed error handling. Added `apiLogin` and `apiSignup` functions. Fixed `DELETE` 204 response to return `undefined` instead of calling `res.json()`.
+
+**`app/login/page.tsx`:** Two-tab card (Sign In / Create Account). Per-field error display: 401 → password error, 409 → email error, 403 → demo key error. Redirects to `/` on success via `router.replace`. Redirects away if already authenticated.
+
+**`components/AuthGuard.tsx`:** Checks `useAuth().auth`; redirects to `/login` via `router.replace` if null; renders `null` (blank) while redirecting.
+
+**`components/NavBar.tsx`:** Client component replacing the static nav in `layout.tsx`. Shows email + "Sign out" button if authenticated; shows "Sign in" link if not. "Sign out" calls `logout()` then `router.push('/login')`.
+
+**`app/layout.tsx`:** Replaced static `<nav>` with `<AuthProvider>` + `<NavBar>`. Metadata export retained (server component compatible with client children in Next.js App Router).
+
+**`app/page.tsx`:** Wrapped in `<AuthGuard>` via inner `WatchList` component pattern (avoids exporting a non-default component that uses hooks before guard check).
+
+**`app/watches/[id]/page.tsx`:** Renamed to `WatchDetail`, wrapped in `<AuthGuard>` via new `WatchDetailPage` default export.
+
+**`app/watches/new/page.tsx`:** Added `demoKey` state, "Demo Key" form field (required — part of `canSubmit` check), `setDemoKeyHeader(demoKey)` before `createWatch`, and `demoKeyError` state for 403 responses.
+
+**`docker-compose.yml`:** Added `DEMO_KEY: ${DEMO_KEY:-SKYFI_DEMO}` to `api` service environment.
+
+**Verification:** Signup with `SKYFI_DEMO` key → 201 + token + 3 demo watches created; wrong key → 403; duplicate email → 409; login → 201 + token; `/me` → correct user; second user sees only their own 3 watches; watch creation without demo key → 403; with demo key → 201. TypeScript: 0 errors.
+---
+
+## Post-Step-16 — Watch list delete button and Dashboard nav link
+
+**Fix 1 — Delete button on watch list cards:**
+**Decision:** Wrapped each `<Link>` card in a `<div className="relative">` and placed an absolutely-positioned `×` button at `top-2 right-2`. The button calls `e.stopPropagation()` + `e.preventDefault()` to suppress the Link navigation, then `window.confirm`, then `deleteWatch(id)`, then filters the watch out of local state — no page reload or navigation.
+**Alternatives considered:** Putting the button inside the Link (doesn't work — nested interactive elements); using a separate delete icon from lucide-react; navigating away after delete.
+**Reason:** The `relative` wrapper + `absolute` button is the standard pattern for overlaying a clickable element on top of another. Filtering state directly gives instant feedback without a network round-trip.
+
+**Fix 2 — Dashboard link in navbar:**
+**Decision:** Added a `<Link href="/">Dashboard</Link>` between the Sentinel logo link and the subtitle span, matching the existing nav link style (`text-sm text-slate-400 hover:text-slate-200 transition-colors`).
+**Reason:** The logo already links home but is not obviously a navigation element to all users. A labeled "Dashboard" link makes the primary nav destination explicit.
+
+**Verification:** TypeScript: 0 errors. Delete button visible on each card, card disappears on confirm without navigating away. Dashboard link appears between logo and subtitle, routes to `/`.
+---
+
+## Post-Step-16 — Agent fallback analytics and mismatch interpretation improvements
+
+**Fix 1 — Agent fallback analytics selection:**
+**Decision:** Added explicit fallback rules to the `place_order` tool description: geological/volcanic/terrain → `change_detection`; wildlife/vegetation/land use → `change_detection`; anything not covered → `change_detection` (not `vessel_detection`). Added a paragraph explicitly prohibiting `vessel_detection` as a non-maritime fallback.
+**Alternatives considered:** Adding a system prompt instruction instead of embedding in the tool description; hardcoding the fallback in Python before calling the agent.
+**Reason:** The tool description is the most proximate context the agent reads when deciding which `analytics_type` to pass. System prompt instructions are further from the decision point and more likely to be overridden by recency bias. The explicit "Do NOT use vessel_detection" prohibition is necessary because `vessel_detection` supports SAR (which is often chosen for cloudy/remote regions) and the agent was defaulting to it for non-maritime SAR questions.
+
+**Fix 2 — Interpretation for mismatched analytics:**
+**Decision:** Added a paragraph to `INTERPRETATION_SYSTEM` instructing the model to reason about what mismatched analytics *does* tell you, not to dismiss it. Specific examples given: change_detection % → geological activity/vegetation shifts; vehicle counts in remote areas → human presence/equipment; water extent → flood/drought proxy. Instruction: "Only note the indirect nature of the measurement briefly, not as a disclaimer that invalidates the answer."
+**Alternatives considered:** Adding this to the tool-use schema description; post-processing the interpretation to strip disclaimers.
+**Reason:** The system prompt is the right place for reasoning style instructions. The specific examples give Claude concrete analogies to work from rather than an abstract rule.
+
+**Verification:** Created watch "Iceland Volcanic Activity" (SAR, Reykjanes Peninsula). Agent selected `change_detection` with reasoning "Change detection analytics is the best available product for detecting volcanic and geological activity." Answer: "4.3% terrain change likely reflects geological activity such as ground deformation, lava flow alteration, or volcanic subsidence rather than literal demolition." Confidence: `medium`. No vessel language. No dismissive disclaimers.
+---

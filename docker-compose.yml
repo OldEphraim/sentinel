@@ -46,6 +46,7 @@ services:
       SKYFI_API_BASE_URL: ${SKYFI_API_BASE_URL:-https://app.skyfi.com/platform-api}
       SKYFI_WEBHOOK_SECRET: ${SKYFI_WEBHOOK_SECRET:-}
       SECRET_KEY: ${SECRET_KEY:-dev-secret}
+      DEMO_KEY: ${DEMO_KEY:-SKYFI_DEMO}
     depends_on:
       postgres:
         condition: service_healthy

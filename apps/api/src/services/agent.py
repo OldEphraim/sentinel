@@ -18,7 +18,7 @@ import anthropic
 from src.config import settings
 from src.services.skyfi_client import SkyFiClient
 
-_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, timeout=60.0)
 _skyfi = SkyFiClient()
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +118,15 @@ TOOLS: list[dict] = [
             "- Construction/infrastructure change → change_detection\n"
             "- Water level/flood/reservoir → water_extent\n"
             "- Oil storage/commodity tracking → oil_tank_inventory\n"
-            "- Building construction → building_extraction"
+            "- Building construction → building_extraction\n"
+            "- Geological activity, volcanic features, terrain changes → change_detection\n"
+            "- Wildlife, vegetation, land use → change_detection\n"
+            "- Anything not covered above → change_detection (not vessel_detection)\n\n"
+            "If no analytics product closely matches the question (e.g. the question is about "
+            "geological features, wildlife, vegetation, or anything not covered by the available "
+            "products), use change_detection as the generic fallback — it detects surface-level "
+            "changes and can provide meaningful signal for almost any monitoring question. "
+            "Do NOT use vessel_detection as a fallback for non-maritime questions."
         ),
         "input_schema": {
             "type": "object",
@@ -173,22 +181,14 @@ You will receive:
 - The sensor type and capture timestamp of the imagery
 - The raw analytics output from SkyFi
 
-Write a response that:
-1. Directly and specifically answers the question
-2. Cites the exact numeric evidence (counts, percentages, areas)
-3. States the confidence level honestly
-4. Notes relevant caveats (e.g., SAR cannot distinguish vehicle types; cloud cover may affect optical results)
-
-Keep it to 2-4 sentences. Be direct. Do not hedge excessively.
-
-Respond ONLY with valid JSON in this exact schema:
-{
-  "answer": "string — the plain-English answer",
-  "confidence": "high" | "medium" | "low",
-  "evidence": [
-    {"type": "count" | "comparison" | "detection" | "measurement", "description": "string", "value": "string or number"}
-  ]
-}"""
+Guidelines for a high-quality answer:
+- Write 2-4 sentences. Be direct and specific. Lead with the answer, not caveats.
+- Cite the exact numbers from the analytics (counts, percentages, areas, volumes).
+- Set confidence genuinely: "high" if the analytics type directly answers the question with strong numeric evidence; "medium" if the match is reasonable but indirect; "low" if the analytics type is mismatched with the question or the confidence score in the data is below 0.85.
+- If the analytics type seems mismatched with the geography or question (e.g. vessel_detection ran over a desert, or building_extraction over open ocean), acknowledge this honestly: explain what was detected and note that the user should interpret results in geographic context.
+- When the analytics type doesn't perfectly match the question (e.g. change_detection was used for a volcanic question, or vehicle_detection was used for a wildlife question), do NOT say the result is useless or should be disregarded. Instead, reason about what the data does tell you in the context of the question. Change detection percentages can indicate geological activity, vegetation shifts, or construction. Vehicle counts in remote areas can indicate human presence or equipment deployment. Water extent changes can proxy for flood or drought conditions. Always extract the most relevant signal from whatever data is available and frame it in terms of the original question. Only note the indirect nature of the measurement briefly, not as a disclaimer that invalidates the answer.
+- SAR sensors cannot distinguish vehicle types; cloud cover may affect optical confidence. Note these caveats only when relevant.
+- Do not hedge excessively. Report the data as a professional analyst would."""
 
 
 # --------------------------------------------------------------------------- #
@@ -338,6 +338,41 @@ async def run_ordering_agent(watch: dict) -> dict:
     return result
 
 
+_SUBMIT_INTERPRETATION_TOOL: dict = {
+    "name": "submit_interpretation",
+    "description": "Submit the structured interpretation of the satellite analytics result.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "answer": {
+                "type": "string",
+                "description": "2-4 sentence plain-English answer to the question",
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+            },
+            "evidence": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["count", "comparison", "detection", "measurement"],
+                        },
+                        "description": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["type", "description"],
+                },
+            },
+        },
+        "required": ["answer", "confidence", "evidence"],
+    },
+}
+
+
 async def interpret_result(
     question: str,
     analytics_result: dict,
@@ -346,6 +381,9 @@ async def interpret_result(
 ) -> dict:
     """
     Use Claude to write a plain-English answer from raw SkyFi analytics output.
+
+    Uses tool-use with tool_choice="any" to force structured output — more
+    reliable than instruction-following JSON generation.
 
     Returns dict with: answer, confidence, evidence
     """
@@ -359,15 +397,15 @@ async def interpret_result(
             model="claude-sonnet-4-5",
             max_tokens=1024,
             system=INTERPRETATION_SYSTEM,
+            tools=[_SUBMIT_INTERPRETATION_TOOL],  # type: ignore[list-item]
+            tool_choice={"type": "any"},
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text  # type: ignore[union-attr]
-        # Strip markdown code fences if present
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = "\n".join(raw.split("\n")[1:])
-            raw = raw.rstrip("`").strip()
-        return json.loads(raw)
+        for block in response.content:
+            if hasattr(block, "type") and block.type == "tool_use":
+                return block.input  # type: ignore[return-value]
+        # Fallback: no tool_use block returned (should not happen with tool_choice="any")
+        raise ValueError("No tool_use block in response")
     except Exception as e:
         return {
             "answer": f"Analytics processing complete. Raw result: {json.dumps(analytics_result)}",

@@ -200,52 +200,7 @@ class MockSkyFiClient:
         return {k: v for k, v in order.items() if not k.startswith("_")}
 
     def _generate_analytics(self, analytics_type: str) -> dict:
-        if analytics_type == "vehicle_detection":
-            return {
-                "detectedObjects": random.randint(12, 85),
-                "objectType": "vehicle",
-                "confidence": round(random.uniform(0.88, 0.95), 2),
-                "breakdown": {"cars": random.randint(8, 50), "trucks": random.randint(2, 20), "heavy_equipment": random.randint(0, 10)},
-            }
-        if analytics_type == "vessel_detection":
-            count = random.randint(3, 28)
-            return {
-                "detectedObjects": count,
-                "objectType": "vessel",
-                "confidence": round(random.uniform(0.85, 0.92), 2),
-                "breakdown": {"cargo": random.randint(1, 15), "tanker": random.randint(0, 8), "small_craft": random.randint(0, 10)},
-            }
-        if analytics_type == "change_detection":
-            pct = round(random.uniform(2.5, 22.0), 1)
-            return {
-                "changePercent": pct,
-                "changeCategory": random.choice(["construction", "vegetation_loss", "new_structure"]),
-                "confidence": round(random.uniform(0.82, 0.91), 2),
-                "changedAreaSqM": round(pct * 1000, 0),
-            }
-        if analytics_type == "water_extent":
-            area = round(random.uniform(4.2, 18.5), 2)
-            change = round(random.uniform(-18.0, 3.0), 1)
-            return {
-                "waterAreaSqKm": area,
-                "changeFromBaselinePct": change,
-                "confidence": round(random.uniform(0.90, 0.96), 2),
-                "method": "NDWI",
-            }
-        if analytics_type == "oil_tank_inventory":
-            tanks = random.randint(8, 52)
-            return {
-                "tankCount": tanks,
-                "estimatedAverageFillPct": random.randint(30, 85),
-                "confidence": round(random.uniform(0.86, 0.93), 2),
-            }
-        if analytics_type == "building_extraction":
-            return {
-                "buildingCount": random.randint(15, 200),
-                "newConstructionDetected": random.choice([True, False]),
-                "confidence": round(random.uniform(0.88, 0.94), 2),
-            }
-        return {"rawResult": "complete", "confidence": 0.80}
+        return generate_mock_analytics(analytics_type)
 
     async def get_analytics_products(self) -> list[dict]:
         await asyncio.sleep(0.1)
@@ -288,3 +243,78 @@ class MockSkyFiClient:
             "imageryUsd": imagery_cost,
             "analyticsUsd": analytics_cost,
         }
+
+
+def generate_mock_analytics(analytics_type: str) -> dict:
+    """
+    Standalone helper — returns a realistic mock analytics result for the given type.
+    Called by MockSkyFiClient._generate_analytics and directly by the worker to ensure
+    the correct analytics type is used regardless of mock order-store state.
+    """
+    if analytics_type == "vehicle_detection":
+        cars = random.randint(5, 80)
+        trucks = random.randint(2, 25)
+        heavy = random.randint(0, 15)
+        return {
+            "detectedObjects": cars + trucks + heavy,
+            "objectType": "vehicle",
+            "confidence": round(random.uniform(0.87, 0.96), 2),
+            "breakdown": {"cars": cars, "trucks": trucks, "heavy_equipment": heavy},
+        }
+    if analytics_type == "vessel_detection":
+        cargo = random.randint(1, 18)
+        tanker = random.randint(0, 10)
+        small = random.randint(0, 12)
+        return {
+            "detectedObjects": cargo + tanker + small,
+            "objectType": "vessel",
+            "confidence": round(random.uniform(0.85, 0.94), 2),
+            "breakdown": {"cargo": cargo, "tanker": tanker, "small_craft": small},
+        }
+    if analytics_type == "change_detection":
+        pct = round(random.uniform(1.5, 28.0), 1)
+        return {
+            "changePercent": pct,
+            "changeCategory": random.choice([
+                "new_construction", "demolition", "vegetation_change",
+                "surface_modification", "flood_inundation", "infrastructure_expansion",
+            ]),
+            "confidence": round(random.uniform(0.82, 0.93), 2),
+            "changedAreaSqM": round(pct * 1000, 0),
+        }
+    if analytics_type == "water_extent":
+        area = round(random.uniform(2.0, 25.0), 2)
+        change = round(random.uniform(-22.0, 12.0), 1)
+        return {
+            "waterAreaSqKm": area,
+            "changeFromBaselinePct": change,
+            "trend": "filling" if change > 0 else "receding",
+            "confidence": round(random.uniform(0.90, 0.97), 2),
+            "method": "NDWI",
+        }
+    if analytics_type == "oil_tank_inventory":
+        tanks = random.randint(4, 60)
+        avg_fill = random.randint(25, 90)
+        return {
+            "tankCount": tanks,
+            "estimatedAverageFillPct": avg_fill,
+            "estimatedTotalVolumeBarrels": tanks * avg_fill * random.randint(800, 2000),
+            "confidence": round(random.uniform(0.86, 0.94), 2),
+        }
+    if analytics_type == "building_extraction":
+        total = random.randint(20, 250)
+        under_construction = random.randint(0, max(1, total // 10))
+        return {
+            "buildingCount": total,
+            "underConstructionCount": under_construction,
+            "newConstructionDetected": under_construction > 0,
+            "confidence": round(random.uniform(0.88, 0.95), 2),
+        }
+    # Unknown / future analytics types — return a plausible generic result
+    return {
+        "analyticsType": analytics_type,
+        "status": "complete",
+        "detectionCount": random.randint(1, 50),
+        "confidence": round(random.uniform(0.78, 0.90), 2),
+        "note": f"Results from {analytics_type} analysis. Interpret in geographic context.",
+    }

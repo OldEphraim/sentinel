@@ -30,6 +30,7 @@ from src.config import settings
 from src.database import AsyncSessionLocal
 from src.models.order import Order
 from src.services.agent import interpret_result
+from src.services.mock_skyfi import generate_mock_analytics
 from src.services.skyfi_client import SkyFiClient
 
 skyfi = SkyFiClient()
@@ -82,6 +83,15 @@ async def handle_order_placed(message: aio_pika.IncomingMessage) -> None:
 
             if status == "complete":
                 analytics_result = status_resp.get("analyticsResult")
+                # The mock's auto-created order entry defaults to vessel_detection.
+                # If the message payload carries a different analytics_type, regenerate
+                # the analytics result using the correct type from the original order.
+                if analytics_type and (
+                    analytics_result is None
+                    or status_resp.get("analyticsType") != analytics_type
+                ):
+                    analytics_result = generate_mock_analytics(analytics_type)
+                    print(f"[worker] Generated analytics for type '{analytics_type}' (overriding mock default)")
                 delivery_url = status_resp.get("deliveryUrl")
                 captured_at = status_resp.get("capturedAt")
 

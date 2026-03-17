@@ -1,17 +1,20 @@
+import asyncio
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.database import AsyncSessionLocal, get_db
 from src.models.order import Order
 from src.models.watch import Watch
 from src.schemas.watch import WatchCreateSchema as WatchCreateRequest
 from src.services.agent import run_ordering_agent
+from src.services.auth import get_current_user
 from src.services.publisher import publish
 
 router = APIRouter()
@@ -66,9 +69,16 @@ def _serialize_order(o: Order) -> dict:
 # --------------------------------------------------------------------------- #
 
 @router.get("/")
-async def list_watches(db: AsyncSession = Depends(get_db)) -> list:
+async def list_watches(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+) -> list:
     try:
-        result = await db.execute(select(Watch).order_by(Watch.created_at.desc()))
+        result = await db.execute(
+            select(Watch)
+            .where(Watch.user_id == user_id)
+            .order_by(Watch.created_at.desc())
+        )
         watches = result.scalars().all()
         return [_serialize_watch(w) for w in watches]
     except Exception as e:
@@ -80,7 +90,12 @@ async def create_watch(
     body: WatchCreateRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    x_demo_key: str | None = Header(default=None),
 ) -> dict:
+    if x_demo_key != settings.demo_key:
+        raise HTTPException(status_code=403, detail="Demo key required to create watches")
+
     try:
         geom = from_shape(shape(body.aoi), srid=4326)
     except Exception as e:
@@ -94,6 +109,7 @@ async def create_watch(
         sensor_preference=body.sensor_preference,
         frequency=body.frequency,
         alert_threshold=body.alert_threshold,
+        user_id=user_id,
         status="active",
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -118,24 +134,39 @@ async def create_watch(
 
 
 @router.get("/{watch_id}")
-async def get_watch(watch_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+async def get_watch(
+    watch_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+) -> dict:
     w = await db.get(Watch, watch_id)
-    if not w:
+    if not w or w.user_id != user_id:
         raise HTTPException(status_code=404, detail="Watch not found")
     return _serialize_watch(w)
 
 
 @router.delete("/{watch_id}", status_code=204)
-async def delete_watch(watch_id: str, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_watch(
+    watch_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+) -> None:
     w = await db.get(Watch, watch_id)
-    if not w:
+    if not w or w.user_id != user_id:
         raise HTTPException(status_code=404, detail="Watch not found")
     await db.delete(w)
     await db.commit()
 
 
 @router.get("/{watch_id}/orders")
-async def get_watch_orders(watch_id: str, db: AsyncSession = Depends(get_db)) -> list:
+async def get_watch_orders(
+    watch_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+) -> list:
+    w = await db.get(Watch, watch_id)
+    if not w or w.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Watch not found")
     result = await db.execute(
         select(Order)
         .where(Order.watch_id == watch_id)
@@ -161,11 +192,17 @@ async def _trigger_watch_run(
     """
     print(f"[watches] Running agent for watch {watch_id}")
     try:
-        agent_result = await run_ordering_agent({
-            "question": question,
-            "aoi": aoi,
-            "sensor_preference": sensor_preference,
-        })
+        agent_result = await asyncio.wait_for(
+            run_ordering_agent({
+                "question": question,
+                "aoi": aoi,
+                "sensor_preference": sensor_preference,
+            }),
+            timeout=120.0,
+        )
+    except asyncio.TimeoutError:
+        print(f"[watches] Agent timed out for watch {watch_id}")
+        agent_result = {"error": "Agent timed out", "skyfi_order_id": None, "sensor_type": "optical"}
     except Exception as e:
         print(f"[watches] Agent error for watch {watch_id}: {e}")
         agent_result = {"error": str(e), "skyfi_order_id": None, "sensor_type": "optical"}

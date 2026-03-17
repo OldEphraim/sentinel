@@ -40,3 +40,13 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_watch_id_idx ON orders(watch_id);
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders(status);
 CREATE INDEX IF NOT EXISTS orders_skyfi_order_id_idx ON orders(skyfi_order_id);
+
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    hashed_password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE watches ADD COLUMN IF NOT EXISTS user_id VARCHAR REFERENCES users(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS watches_user_id_idx ON watches(user_id);

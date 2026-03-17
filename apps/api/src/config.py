@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://sentinel:sentinel@localhost:5432/sentinel"
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     secret_key: str = "dev-secret-change-in-production"
+    demo_key: str = "SKYFI_DEMO"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 720  # 30 days
 
     @property
     def use_mock_skyfi(self) -> bool:

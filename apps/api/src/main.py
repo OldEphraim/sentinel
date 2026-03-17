@@ -2,7 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.routers import watches, orders, webhooks, sse
+from src.routers import auth as auth_router
 from src.database import engine, Base
+import src.models.user  # noqa: F401 — registers User with Base.metadata
 
 
 @asynccontextmanager
@@ -28,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
 app.include_router(watches.router, prefix="/api/watches", tags=["watches"])
 app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["webhooks"])

@@ -16,6 +16,7 @@ class Watch(Base):
     sensor_preference: Mapped[str] = mapped_column(String(50), nullable=False, default="auto")
     frequency: Mapped[str] = mapped_column(String(50), nullable=False, default="once")
     alert_threshold: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

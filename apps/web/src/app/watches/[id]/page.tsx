@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock } from
 import { fetchWatch, fetchWatchOrders } from '@/lib/api';
 import { useOrderStream } from '@/hooks/useOrderStream';
 import { formatDate, SENSOR_ICONS, statusColor, statusBg, STATUS_LABELS } from '@/lib/utils';
+import AuthGuard from '@/components/AuthGuard';
 
 const AoiMap = dynamic(() => import('@/components/AoiMap'), { ssr: false });
 
@@ -106,12 +107,13 @@ function OrderCard({ order }: { order: Record<string, unknown> }) {
   );
 }
 
-export default function WatchDetailPage() {
+function WatchDetail() {
   const params = useParams<{ id: string }>();
   const watchId = params.id;
   const [watch, setWatch] = useState<Record<string, unknown> | null>(null);
   const [orders, setOrders] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
+  const [elapsed, setElapsed] = useState(0);
 
   const streamUpdates = useOrderStream(watchId);
 
@@ -129,6 +131,26 @@ export default function WatchDetailPage() {
       return [...merged];
     });
   }, [streamUpdates]);
+
+  // Polling fallback — every 5s in case SSE drops before the update arrives
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const o = await fetchWatchOrders(watchId) as Record<string, unknown>[];
+        setOrders(o);
+      } catch {
+        // ignore fetch errors — SSE or next poll will catch up
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [watchId]);
+
+  // Elapsed time counter — only active when there are no orders yet
+  useEffect(() => {
+    if (orders.length > 0) return;
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [orders.length]);
 
   useEffect(() => {
     const load = async () => {
@@ -189,9 +211,21 @@ export default function WatchDetailPage() {
       <div>
         <h2 className="text-lg font-medium mb-3">Order History</h2>
         {orders.length === 0 ? (
-          <div className="text-slate-500 text-sm flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Running agent...
+          <div className="text-sm">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Running agent...{elapsed >= 5 && <span>({elapsed}s)</span>}
+            </div>
+            {elapsed >= 30 && elapsed < 60 && (
+              <p className="text-xs text-slate-600 mt-1 ml-6">
+                Selecting optimal satellite &amp; analytics configuration
+              </p>
+            )}
+            {elapsed >= 60 && (
+              <p className="text-xs text-slate-600 mt-1 ml-6">
+                This can take up to 2 minutes for complex queries
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -202,5 +236,13 @@ export default function WatchDetailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function WatchDetailPage() {
+  return (
+    <AuthGuard>
+      <WatchDetail />
+    </AuthGuard>
   );
 }

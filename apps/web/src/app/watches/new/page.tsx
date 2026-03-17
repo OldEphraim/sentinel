@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import type { GeoJsonPolygon } from '@sentinel/types';
-import { createWatch } from '@/lib/api';
+import { createWatch, setDemoKeyHeader, ApiError } from '@/lib/api';
 
 // MapLibre must be dynamically imported (SSR would fail)
 const AoiMap = dynamic(() => import('@/components/AoiMap'), { ssr: false });
@@ -38,16 +38,20 @@ export default function NewWatchPage() {
   const [sensorPreference, setSensorPreference] = useState('auto');
   const [frequency, setFrequency] = useState('once');
   const [alertThreshold, setAlertThreshold] = useState('');
+  const [demoKey, setDemoKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [demoKeyError, setDemoKeyError] = useState<string | null>(null);
 
-  const canSubmit = name.trim() && question.trim() && aoi !== null && !submitting;
+  const canSubmit = name.trim() && question.trim() && aoi !== null && demoKey.trim() && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit || !aoi) return;
     setSubmitting(true);
     setError(null);
+    setDemoKeyError(null);
     try {
+      setDemoKeyHeader(demoKey.trim());
       const watch = await createWatch({
         name: name.trim(),
         question: question.trim(),
@@ -58,7 +62,11 @@ export default function NewWatchPage() {
       }) as Record<string, unknown>;
       router.push(`/watches/${watch['id'] as string}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create watch');
+      if (e instanceof ApiError && e.status === 403) {
+        setDemoKeyError('Invalid demo key');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to create watch');
+      }
       setSubmitting(false);
     }
   };
@@ -158,6 +166,24 @@ export default function NewWatchPage() {
               placeholder='e.g. "fewer than 5 vessels" or "more than 20% change"'
               className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 placeholder:text-slate-500"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+              Demo Key
+            </label>
+            <input
+              type="text"
+              value={demoKey}
+              onChange={(e) => setDemoKey(e.target.value)}
+              placeholder="Enter demo access key"
+              className={`w-full bg-slate-800 border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 placeholder:text-slate-500 ${
+                demoKeyError ? 'border-red-500' : 'border-slate-600'
+              }`}
+            />
+            {demoKeyError && (
+              <p className="text-red-400 text-xs mt-1">{demoKeyError}</p>
+            )}
           </div>
 
           {error && (
