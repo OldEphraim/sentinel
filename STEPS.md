@@ -2776,7 +2776,7 @@ export default function AoiMap({ value, onChange, readOnly = false }: Props) {
         </Source>
       </Map>
 
-      {/* Overlay instructions */}
+      {/* Overlay instructions — top to avoid collision with MapLibre attribution */}
       {!readOnly && (
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
           <div className="bg-slate-900/90 text-slate-300 text-xs px-3 py-1.5 rounded-md">
@@ -3315,8 +3315,10 @@ if __name__ == "__main__":
 
 With the API running:
 ```bash
-python scripts/seed.py
+uv run --with httpx python scripts/seed.py
 ```
+
+Note: `python scripts/seed.py` directly will fail with `ModuleNotFoundError: No module named 'httpx'` since the repo root has no Python environment with httpx installed. `uv run --with httpx` provides it in a temporary environment without permanently modifying any project's dependencies.
 
 Should print three success lines. Then visit http://localhost:3000 and confirm the three watches appear.
 
@@ -3552,7 +3554,7 @@ logs:
 	docker compose logs -f
 
 seed:
-	python scripts/seed.py
+	uv run --with httpx python scripts/seed.py
 
 clean:
 	docker compose down -v

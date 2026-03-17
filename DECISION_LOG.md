@@ -96,4 +96,10 @@ Append an entry at the end of every step.
 **Reason:** Two TypeScript strict-mode issues arose: (1) `react-map-gl`'s `Source` component requires `type: "geojson"` as a string literal, not `string` — spreading a plain object infers the wider type. Adding `as const` narrows it. (2) `Record<string, unknown>` access returns `unknown`; using `unknown` in JSX conditional expressions (`{x && ...}`) is rejected because `ReactNode` does not include `unknown`. Casting to `string | undefined` at the conditional boundary resolves this without losing type safety. (3) Template literal `${unknown}` in strict mode requires `String(x)` coercion.
 **Impact:** None functional — all casts are accurate at runtime. The `as const` assertions make the GeoJSON objects structurally compatible with the `@types/geojson` types that `react-map-gl` expects.
 ---
+
+## Step 11 — Seed script
+**Decision:** Ran `python scripts/seed.py` using `uv run --with httpx python scripts/seed.py` rather than the bare `python` invocation shown in STEPS.md.
+**Alternatives considered:** Installing httpx globally; using the system Python.
+**Reason:** `httpx` is not installed in the system Python environment. The repo root has no `pyproject.toml` with httpx as a dependency. `uv run --with httpx` installs it into a temporary environment for the invocation only — no permanent change to any project's dependencies.
+**Impact:** Users running `python scripts/seed.py` directly will hit `ModuleNotFoundError: No module named 'httpx'`. The README (Step 17) should document the correct invocation: `uv run --with httpx python scripts/seed.py`.
 ---
