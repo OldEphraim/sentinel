@@ -355,3 +355,17 @@ The worker received the correct `analyticsType` in the RabbitMQ message (e.g. `b
 
 Rewrote `README.md` from scratch with accurate content reflecting all post-step-16 improvements: auth system, mock mode, demo key, per-user watches, agent reasoning UI, and correct clone URL (`OldEphraim/sentinel`). Retained the architecture diagram and tech stack table; replaced placeholder setup instructions with the actual signup flow.
 ---
+
+## Post-Step-16 — Step 18 final verification checklist
+
+| Item | Result |
+|---|---|
+| `helm lint helm/sentinel/` | PASS — 0 charts failed (INFO: icon recommended, not an error) |
+| `pnpm exec tsc --noEmit` (from `apps/web`) | PASS — 0 errors |
+| `uv run pytest tests/ -v` | PASS — 3/3 passed |
+| `.env` in `.gitignore` | PASS — line 5 |
+| `k8s/secrets.yaml` in `.gitignore` | PASS — line 15 |
+| `k8s/secrets.yaml.example` exists with no real values | PASS — all credential fields are `""` or `CHANGE_ME` |
+
+Note: STEPS.md says to run `tsc --noEmit` "from the repo root" but there is no `tsconfig.json` at the root — the correct directory is `apps/web/`. Running from root prints the tsc help text. Running from `apps/web/` returns 0 errors.
+---
