@@ -136,3 +136,10 @@ Append an entry at the end of every step.
 **Reason:** asyncpg raised `DataError: can't subtract offset-naive and offset-aware datetimes` when trying to insert an aware datetime into a naive `DateTime` column. The simplest fix is to strip timezone info at insertion time — all datetimes in the schema are naive UTC, so this is consistent.
 **Impact:** `captured_at` is stored as naive UTC in the DB. This is consistent with all other `datetime` fields in the models.
 ---
+
+## Step 14 — Kubernetes manifests
+**Decision:** Used a headless Service (`clusterIP: None`) for the postgres StatefulSet rather than a standard ClusterIP Service.
+**Alternatives considered:** ClusterIP Service (as the spec loosely described); NodePort.
+**Reason:** Kubernetes StatefulSets are designed to be fronted by a headless service — it enables stable DNS names per pod (e.g., `postgres-0.postgres.sentinel.svc.cluster.local`) and is required for `serviceName` to work correctly in the StatefulSet spec. A standard ClusterIP service would work for read traffic but doesn't follow StatefulSet best practice.
+**Impact:** Other services connect to `postgres:5432` (the headless service DNS), which resolves directly to the pod IP — functionally identical to ClusterIP for a single-replica database.
+---

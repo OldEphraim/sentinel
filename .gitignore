@@ -12,3 +12,4 @@ build/
 .uv/
 uv.lock
 apps/web/pnpm-lock.yaml
+k8s/secrets.yaml
