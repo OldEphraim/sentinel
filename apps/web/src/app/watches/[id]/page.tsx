@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Clock, CheckCheck } from 'lucide-react';
 import { fetchWatch, fetchWatchOrders } from '@/lib/api';
 import { useOrderStream } from '@/hooks/useOrderStream';
 import { formatDate, SENSOR_ICONS, statusColor, statusBg, STATUS_LABELS } from '@/lib/utils';
@@ -76,32 +76,81 @@ function OrderCard({ order }: { order: Record<string, unknown> }) {
 
       {/* Agent reasoning (collapsible) */}
       {thoughts && thoughts.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        <details>
+          <summary className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer list-none">
+            <ChevronRight className="w-3 h-3 details-chevron" />
             Agent reasoning ({thoughts.length} steps)
-          </button>
-          {expanded && (
-            <div className="mt-2 space-y-2">
-              {(thoughts as Array<Record<string, unknown>>).map((t, i) => (
-                <div key={i} className="bg-slate-900/40 rounded p-3 text-xs font-mono">
-                  <div className="text-slate-400 mb-1">
-                    Step {(t['step'] as number) + 1}: <span className="text-blue-400">{t['toolCalled'] as string}</span>
+          </summary>
+          <div className="mt-2 space-y-2">
+            {(thoughts as Array<Record<string, unknown>>).map((t, i) => {
+              const toolName = t['toolCalled'] as string;
+              const toolInput = (t['toolInput'] as Record<string, unknown>) ?? {};
+              const toolOutput = t['toolOutput'] as Record<string, unknown> | undefined;
+
+              // Derive human-readable summary line
+              let summary: string;
+              if (toolName === 'get_analytics_products') {
+                summary = 'Listed available analytics products';
+              } else if (toolName === 'search_archive') {
+                const sensor = toolInput['sensor_type'] as string | undefined;
+                const dateFrom = toolInput['date_from'] as string | undefined;
+                const dateTo = toolInput['date_to'] as string | undefined;
+                const openData = toolInput['open_data_only'] as boolean | undefined;
+                const sensorLabel = openData ? 'Free (Sentinel-2)' : (sensor ?? 'all sensors');
+                summary = `Searched ${sensorLabel} archive · ${dateFrom ?? ''} to ${dateTo ?? ''}`;
+              } else if (toolName === 'estimate_cost') {
+                const out = toolOutput as Record<string, unknown> | undefined;
+                const sensor = toolInput['sensor_type'] as string | undefined;
+                const analytics = toolInput['analytics_type'] as string | undefined;
+                if (out?.['totalUsd'] !== undefined) {
+                  summary = `Estimated cost: $${String(out['totalUsd'])}${sensor ? ` (${sensor}` : ''}${analytics ? ` + ${analytics})` : (sensor ? ')' : '')}`;
+                } else {
+                  summary = 'Estimated order cost';
+                }
+              } else if (toolName === 'place_order') {
+                const archiveId = toolInput['archive_id'] as string | undefined;
+                const analytics = toolInput['analytics_type'] as string | undefined;
+                summary = `Selected ${archiveId ?? 'image'}${analytics ? ` · ${analytics}` : ''}`;
+              } else {
+                summary = toolName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+              }
+
+              // For raw input display, exclude reasoning from place_order
+              const { reasoning: _reasoning, ...rawInput } = toolInput as Record<string, unknown> & { reasoning?: unknown };
+
+              return (
+                <div key={i} className="bg-slate-900/40 rounded p-3 text-xs">
+                  {/* Summary line */}
+                  <div className="flex items-start gap-2 text-slate-300">
+                    <CheckCheck className="w-3 h-3 text-emerald-600 mt-0.5 shrink-0" />
+                    <span>
+                      <span className="text-slate-500 mr-1">Step {i + 1}:</span>
+                      {summary}
+                    </span>
                   </div>
-                  {(t['toolInput'] as Record<string, unknown> | undefined) && (
-                    <pre className="text-slate-500 overflow-x-auto text-xs">
-                      {JSON.stringify(t['toolInput'], null, 2)}
-                    </pre>
+
+                  {/* place_order reasoning shown inline */}
+                  {toolName === 'place_order' && typeof toolInput['reasoning'] === 'string' && (
+                    <p className="text-slate-400 text-xs italic mt-1.5 ml-5">
+                      {toolInput['reasoning']}
+                    </p>
                   )}
+
+                  {/* Raw input toggle */}
+                  <details className="mt-1.5 ml-5">
+                    <summary className="flex items-center gap-1 text-slate-600 hover:text-slate-400 cursor-pointer list-none w-fit">
+                      <ChevronRight className="w-3 h-3" />
+                      Show raw input
+                    </summary>
+                    <pre className="text-slate-500 overflow-x-auto text-xs mt-1 font-mono">
+                      {JSON.stringify(rawInput, null, 2)}
+                    </pre>
+                  </details>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        </details>
       )}
     </div>
   );

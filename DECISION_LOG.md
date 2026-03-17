@@ -337,3 +337,16 @@ The worker received the correct `analyticsType` in the RabbitMQ message (e.g. `b
 
 **Verification:** Created watch "Iceland Volcanic Activity" (SAR, Reykjanes Peninsula). Agent selected `change_detection` with reasoning "Change detection analytics is the best available product for detecting volcanic and geological activity." Answer: "4.3% terrain change likely reflects geological activity such as ground deformation, lava flow alteration, or volcanic subsidence rather than literal demolition." Confidence: `medium`. No vessel language. No dismissive disclaimers.
 ---
+
+## Post-Step-16 — Agent reasoning display redesign
+
+**Problem 1 — Duplicate step numbers:** Changed `Step {(t['step'] as number) + 1}` to `Step {i + 1}` (array index). The `thought.step` field records the agent loop iteration; multiple tool calls in one iteration share the same value. The array index is always unique and sequential.
+
+**Problem 2 — Raw GeoJSON exposed by default:** Replaced the flat list of `<div>` blocks with a two-level disclosure pattern using native `<details>`/`<summary>` elements. The outer `<details>` wraps the whole "Agent reasoning" section (existing toggle). Each thought gets its own inner `<details>` for the raw input.
+- Summary lines derived per tool: `get_analytics_products` → plain label; `search_archive` → sensor + date range; `estimate_cost` → cost + sensor + analytics from `toolOutput`; `place_order` → archive ID + analytics type; unknown tools → title-cased tool name.
+- `place_order` reasoning string rendered inline below the summary (italic, `text-slate-400`) — most valuable content, no click required.
+- "Show raw input" inner toggle shows `toolInput` JSON; `reasoning` key excluded from `place_order` raw display via object destructuring before `JSON.stringify`.
+- Used `typeof toolInput['reasoning'] === 'string'` narrowing (instead of `as string` cast) to satisfy `noUncheckedIndexedAccess` — avoids rendering `unknown` as ReactNode.
+
+**Verification:** TypeScript: 0 errors.
+---
