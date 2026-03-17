@@ -177,7 +177,16 @@ class MockSkyFiClient:
     async def get_order_status(self, skyfi_order_id: str) -> dict:
         await asyncio.sleep(0.1)
         if skyfi_order_id not in self._orders:
-            return {"orderId": skyfi_order_id, "status": "not_found"}
+            # Cross-process scenario (worker runs in a separate container from the API).
+            # The API's _orders dict is empty in the worker process, so we auto-create
+            # an entry the first time we see an unknown order ID, with a short ready delay.
+            self._orders[skyfi_order_id] = {
+                "orderId": skyfi_order_id,
+                "status": "processing",
+                "analyticsType": "vessel_detection",  # default; worker doesn't know the real type
+                "_ready_after": datetime.utcnow() + timedelta(seconds=5),
+            }
+            return {"orderId": skyfi_order_id, "status": "processing"}
         order = self._orders[skyfi_order_id]
         if datetime.utcnow() >= order["_ready_after"]:
             order["status"] = "complete"

@@ -921,7 +921,15 @@ class MockSkyFiClient:
     async def get_order_status(self, skyfi_order_id: str) -> dict:
         await asyncio.sleep(0.1)
         if skyfi_order_id not in self._orders:
-            return {"orderId": skyfi_order_id, "status": "not_found"}
+            # In Docker, the worker runs in a separate process with its own mock instance,
+            # so _orders is empty. Auto-create an entry so the worker sees a valid lifecycle
+            # instead of immediately failing on "not_found".
+            self._orders[skyfi_order_id] = {
+                "orderId": skyfi_order_id,
+                "status": "pending",
+                "analyticsType": "vessel_detection",
+                "_ready_after": datetime.utcnow() + timedelta(seconds=5),
+            }
         order = self._orders[skyfi_order_id]
         if datetime.utcnow() >= order["_ready_after"]:
             order["status"] = "complete"
@@ -2205,7 +2213,7 @@ async def handle_order_placed(message: aio_pika.IncomingMessage) -> None:
                                 evidence=interpretation.get("evidence"),
                                 raw_analytics=analytics_result,
                                 imagery_url=delivery_url,
-                                captured_at=datetime.fromisoformat(captured_at.replace("Z", "+00:00")) if captured_at else None,
+                                captured_at=datetime.fromisoformat(captured_at.replace("Z", "")) if captured_at else None,
                                 updated_at=datetime.utcnow(),
                             )
                         )
@@ -3339,11 +3347,12 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Install dependencies (before copying source — better layer caching)
-COPY pyproject.toml ./
+# Paths are repo-root-relative: docker-compose sets context: . (repo root)
+COPY apps/api/pyproject.toml ./
 RUN uv sync --no-dev
 
 # Copy source
-COPY src/ ./src/
+COPY apps/api/src/ ./src/
 
 EXPOSE 8000
 CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

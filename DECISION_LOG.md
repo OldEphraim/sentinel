@@ -116,3 +116,23 @@ Append an entry at the end of every step.
 **Reason:** The spec's `apps/web/Dockerfile` runs `pnpm --filter @sentinel/web build`, which requires the package name to match. The root `package.json` scripts already reference `@sentinel/web` — so `create-next-app` had simply scaffolded the wrong name. The filter returned "No projects matched" and the build stage produced no output, causing the `COPY --from=builder` of `.next/standalone` to fail. Renaming the package to `@sentinel/web` fixes both the Dockerfile and aligns with the root scripts.
 **Impact:** `pnpm dev` from `apps/web/` is unaffected (the script name didn't change). The lockfile was regenerated with `pnpm install` at the repo root to update the package name reference.
 ---
+
+## Step 13 — Docker Compose
+
+**Decision 1:** Updated `apps/api/Dockerfile` to use repo-root-relative paths (`COPY apps/api/pyproject.toml` and `COPY apps/api/src/`).
+**Alternatives considered:** Keeping per-service context in docker-compose (`context: apps/api`); using subdirectory COPY in compose.
+**Reason:** In Step 12 the API image was built with `cd apps/api && docker build .` (context = `apps/api/`), so `COPY pyproject.toml` and `COPY src/` resolved correctly. Docker Compose sets `context: .` (repo root), so the same paths resolved to the nonexistent `./pyproject.toml` and `./src/` at the repo root. Fixed by prefixing paths with `apps/api/` — consistent with how the worker Dockerfile was already written.
+**Impact:** `docker build -f apps/api/Dockerfile -t sentinel-api .` (from repo root) now works correctly. Building from `apps/api/` with `.` context no longer works, but docker-compose and the Step 12 verification command (which also use repo root) both do.
+---
+
+**Decision 2:** Fixed `MockSkyFiClient.get_order_status` to auto-create an order entry when an unknown order ID arrives instead of returning `"not_found"`.
+**Alternatives considered:** Making mock state shared via Redis; ignoring `not_found` in the worker (causing 10-minute timeout); lowering `POLL_INTERVAL_SECONDS`.
+**Reason:** The `MockSkyFiClient._orders` dict is a class-level Python object — it only exists in one OS process. When the API places an order, the mock stores it in the API container's memory. The worker runs in a separate container with its own fresh mock instance (empty `_orders`). Every `get_order_status` call from the worker returned `"not_found"`, which the worker immediately treated as a failure condition. Fixed by making the mock auto-create a new order entry on first sight, with `_ready_after = now + 5s`, so the worker sees `processing` on the first poll and `complete` a few seconds later.
+**Impact:** In Docker mode, analytics always use the `vessel_detection` default (since the worker's auto-created entry doesn't know what analytics type the API ordered). The demo still demonstrates the full lifecycle. In local non-Docker mode (single process) the behavior is unchanged — the API and worker share the same mock instance.
+---
+
+**Decision 3:** Fixed `captured_at` timezone handling in `worker.py` — changed `captured_at.replace("Z", "+00:00")` to `captured_at.replace("Z", "")` to strip the "Z" and produce a naive datetime, consistent with the `DateTime` (timezone-naive) SQLAlchemy column.
+**Alternatives considered:** Using `TIMESTAMP WITH TIME ZONE` in the DB schema; using `datetime.timezone.utc` throughout.
+**Reason:** asyncpg raised `DataError: can't subtract offset-naive and offset-aware datetimes` when trying to insert an aware datetime into a naive `DateTime` column. The simplest fix is to strip timezone info at insertion time — all datetimes in the schema are naive UTC, so this is consistent.
+**Impact:** `captured_at` is stored as naive UTC in the DB. This is consistent with all other `datetime` fields in the models.
+---

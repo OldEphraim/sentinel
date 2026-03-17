@@ -1,3 +1,88 @@
-# Full docker-compose.yml is implemented in Step 13.
 version: '3.9'
-services: {}
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel
+      POSTGRES_DB: sentinel
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./apps/api/src/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinel
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SKYFI_API_KEY: ${SKYFI_API_KEY:-}
+      SKYFI_API_BASE_URL: ${SKYFI_API_BASE_URL:-https://app.skyfi.com/platform-api}
+      SKYFI_WEBHOOK_SECRET: ${SKYFI_WEBHOOK_SECRET:-}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://sentinel:sentinel@postgres:5432/sentinel
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SKYFI_API_KEY: ${SKYFI_API_KEY:-}
+      SKYFI_WEBHOOK_SECRET: ${SKYFI_WEBHOOK_SECRET:-}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

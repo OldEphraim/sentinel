@@ -126,7 +126,7 @@ async def handle_order_placed(message: aio_pika.IncomingMessage) -> None:
                                 evidence=interpretation.get("evidence"),
                                 raw_analytics=analytics_result,
                                 imagery_url=delivery_url,
-                                captured_at=datetime.fromisoformat(captured_at.replace("Z", "+00:00")) if captured_at else None,
+                                captured_at=datetime.fromisoformat(captured_at.replace("Z", "")) if captured_at else None,
                                 updated_at=datetime.utcnow(),
                             )
                         )
