@@ -369,3 +369,8 @@ Rewrote `README.md` from scratch with accurate content reflecting all post-step-
 
 Note: STEPS.md says to run `tsc --noEmit` "from the repo root" but there is no `tsconfig.json` at the root — the correct directory is `apps/web/`. Running from root prints the tsc help text. Running from `apps/web/` returns 0 errors.
 ---
+
+## Post-Step-16 — DEPLOYMENT.md created
+
+Created `DEPLOYMENT.md` at the repo root documenting the full DigitalOcean + Caddy + Docker Compose production deployment for sentineldemo.xyz, including SSH setup, Caddy config, the `NEXT_PUBLIC_API_URL` build-time baking caveat, DNS setup, update procedure, monitoring, and teardown.
+---
